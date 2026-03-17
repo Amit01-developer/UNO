@@ -1,0 +1,307 @@
+@import "tailwindcss";
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  100% { transform: translateY(-20px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 5px rgba(250, 204, 21, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(250, 204, 21, 0.6); }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s ease-in-out infinite;
+}
+
+/* Theme variables */
+:root {
+  --bg-gradient-start: #1a4d7a;
+  --bg-gradient-mid: #2563a8;
+  --bg-gradient-end: #0f3a5f;
+  --card-bg: rgba(31, 41, 55, 0.9);
+  --card-border: rgba(75, 85, 99, 0.5);
+  --input-bg: rgba(17, 24, 39, 0.8);
+  --input-border: #4b5563;
+  --text-primary: #ffffff;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --table-color: #1e5a8e;
+}
+
+:root[data-theme="light"] {
+  --bg-gradient-start: #ffffff;
+  --bg-gradient-mid: #f5f5f5;
+  --bg-gradient-end: #e8e8e8;
+  --card-bg: rgba(255, 255, 255, 0.98);
+  --card-border: rgba(200, 200, 200, 0.6);
+  --input-bg: rgba(248, 248, 248, 0.99);
+  --input-border: #d1d1d1;
+  --text-primary: #1a1a1a;
+  --text-secondary: #444444;
+  --text-muted: #888888;
+  --table-color: #a8d5a2;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(ellipse at center, var(--bg-gradient-mid) 0%, var(--bg-gradient-start) 50%, var(--bg-gradient-end) 100%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  transition: background 0.3s ease, color 0.3s ease;
+  min-height: 100vh;
+}
+
+:root[data-theme="light"] body {
+  background: linear-gradient(160deg, #ffffff 0%, #f0f0f0 40%, #e4e4e4 100%);
+  background-attachment: fixed;
+}
+
+/* Only hide overflow on game board */
+body.game-active {
+  overflow-x: hidden;
+}
+
+/* Theme-aware backgrounds */
+.theme-bg-gradient {
+  background: linear-gradient(to bottom right, var(--bg-gradient-start), var(--bg-gradient-mid), var(--bg-gradient-end));
+}
+
+:root[data-theme="light"] .theme-bg-gradient {
+  background: linear-gradient(160deg, #ffffff 0%, #f0f0f0 40%, #e4e4e4 100%);
+}
+
+.theme-card-bg {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+.theme-input-bg {
+  background: var(--input-bg);
+  border-color: var(--input-border);
+  color: var(--text-primary);
+}
+
+.theme-text-primary {
+  color: var(--text-primary);
+}
+
+.theme-text-secondary {
+  color: var(--text-secondary);
+}
+
+.theme-text-muted {
+  color: var(--text-muted);
+}
+
+/* Light theme specific adjustments */
+:root[data-theme="light"] .theme-shadow {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+:root[data-theme="dark"] .theme-shadow {
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+
+/* Top bar toggle buttons - light theme */
+:root[data-theme="light"] .topbar-btn {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  color: #1a1a1a !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+:root[data-theme="light"] .topbar-btn:hover {
+  background: rgba(255, 255, 255, 1) !important;
+}
+
+/* Light theme lobby button overrides */
+:root[data-theme="light"] .lobby-btn-ai {
+  background: linear-gradient(135deg, #7c3aed, #db2777) !important;
+  border-color: rgba(124, 58, 237, 0.3) !important;
+  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.2) !important;
+}
+:root[data-theme="light"] .lobby-btn-ai h3 { color: #ffffff !important; }
+:root[data-theme="light"] .lobby-btn-ai p  { color: #f3e8ff !important; }
+
+:root[data-theme="light"] .lobby-btn-create {
+  background: linear-gradient(135deg, #16a34a, #059669) !important;
+  border-color: rgba(22, 163, 74, 0.3) !important;
+  box-shadow: 0 4px 16px rgba(22, 163, 74, 0.2) !important;
+}
+:root[data-theme="light"] .lobby-btn-create h3 { color: #ffffff !important; }
+:root[data-theme="light"] .lobby-btn-create p  { color: #dcfce7 !important; }
+
+:root[data-theme="light"] .lobby-btn-join {
+  background: linear-gradient(135deg, #2563eb, #4f46e5) !important;
+  border-color: rgba(37, 99, 235, 0.3) !important;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.2) !important;
+}
+:root[data-theme="light"] .lobby-btn-join h3 { color: #ffffff !important; }
+:root[data-theme="light"] .lobby-btn-join p  { color: #dbeafe !important; }
+
+/* Light theme - logout button */
+:root[data-theme="light"] .logout-btn {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(220, 38, 38, 0.25) !important;
+  color: #dc2626 !important;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.08) !important;
+}
+:root[data-theme="light"] .logout-btn:hover {
+  background: rgba(254, 226, 226, 0.9) !important;
+}
+
+/* Light theme - room PIN card */
+:root[data-theme="light"] .room-pin-card {
+  background: linear-gradient(135deg, #ffffff 0%, #f5f5f5 100%) !important;
+  border-color: rgba(234, 179, 8, 0.4) !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.07) !important;
+}
+:root[data-theme="light"] .room-pin-card .pin-label { color: #92400e !important; }
+:root[data-theme="light"] .room-pin-card .pin-text  { color: #1a1a1a !important; }
+
+/* Light theme - player list items */
+:root[data-theme="light"] .player-item-other {
+  background: linear-gradient(135deg, #fafafa, #f0f0f0) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+:root[data-theme="light"] .player-item-other .player-name  { color: #1a1a1a !important; }
+:root[data-theme="light"] .player-item-other .player-email { color: #555555 !important; }
+
+/* Light theme - bot selector cards */
+:root[data-theme="light"] .bot-card-inactive {
+  background: linear-gradient(135deg, #ffffff, #f0f0f0) !important;
+  border-color: #d1d1d1 !important;
+  color: #1a1a1a !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
+}
+:root[data-theme="light"] .bot-card-inactive .text-white { color: #1a1a1a !important; }
+:root[data-theme="light"] .bot-card-inactive .text-gray-300 { color: #666666 !important; }
+:root[data-theme="light"] .bot-card-inactive:hover {
+  background: linear-gradient(135deg, #f5f5f5, #e8e8e8) !important;
+}
+
+/* Light theme - number selector buttons */
+:root[data-theme="light"] .num-btn-inactive {
+  background: linear-gradient(135deg, #ffffff, #f0f0f0) !important;
+  color: #333333 !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06) !important;
+}
+:root[data-theme="light"] .num-btn-inactive:hover {
+  background: linear-gradient(135deg, #f0f0f0, #e4e4e4) !important;
+}
+
+/* Light theme - error box */
+:root[data-theme="light"] .error-box {
+  background: rgba(255, 240, 240, 0.95) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+  color: #dc2626 !important;
+}
+
+/* Light theme - leave/close room button */
+:root[data-theme="light"] .leave-btn {
+  background: rgba(255, 245, 245, 0.95) !important;
+  border-color: rgba(239, 68, 68, 0.25) !important;
+  color: #dc2626 !important;
+}
+:root[data-theme="light"] .leave-btn:hover {
+  background: rgba(254, 226, 226, 0.95) !important;
+}
+
+/* Light theme - subtitle text on login */
+:root[data-theme="light"] .login-subtitle { color: #555555 !important; }
+
+/* Light theme card bg subtle gradient */
+:root[data-theme="light"] .theme-card-bg {
+  background: linear-gradient(160deg, #ffffff 0%, #fafafa 100%) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Light theme input bg */
+:root[data-theme="light"] .theme-input-bg {
+  background: linear-gradient(135deg, #fafafa, #f5f5f5) !important;
+  border-color: #d1d1d1 !important;
+}
+
+/* Light theme - go back button */
+:root[data-theme="light"] .theme-text-secondary:hover { color: #1a1a1a !important; }
+:root[data-theme="light"] .go-back-btn { color: #555555 !important; }
+:root[data-theme="light"] .go-back-btn:hover { color: #1a1a1a !important; }
+
+/* Light theme - bot card number and label text */
+:root[data-theme="light"] .bot-card-inactive .bot-count-text { color: #1a1a1a !important; }
+:root[data-theme="light"] .bot-card-inactive .bot-label-text { color: #666666 !important; }
+
+/* Light theme - lobby subtitle */
+:root[data-theme="light"] .lobby-subtitle { color: #555555 !important; }
+
+/* Light theme - empty player slot dots */
+:root[data-theme="light"] .bg-gray-600 { background-color: #d1d1d1 !important; }
+
+/* Light theme - room PIN label (yellow-300 on dark, amber on light) */
+:root[data-theme="light"] .room-pin-card .text-yellow-300 { color: #92400e !important; }
+
+/* Light theme - waiting/host message box */
+:root[data-theme="light"] .theme-card-bg.border.theme-text-primary { color: #1a1a1a !important; }
+
+/* Light theme - music controls text */
+:root[data-theme="light"] .music-text { color: #444444 !important; }
+
+/* Light theme - how to play icons */
+:root[data-theme="light"] .text-purple-400 { color: #7c3aed !important; }
+:root[data-theme="light"] .text-green-400  { color: #16a34a !important; }
+:root[data-theme="light"] .text-blue-400   { color: #2563eb !important; }
+:root[data-theme="light"] .text-yellow-400 { color: #d97706 !important; }
+
+/* Light theme - music controls */
+:root[data-theme="light"] .text-white\/60 { color: #666666 !important; }
+:root[data-theme="light"] .text-white\/70 { color: #555555 !important; }
+:root[data-theme="light"] .music-vol-text { color: #555555 !important; }
+
+/* Light theme - login tab inactive hover */
+:root[data-theme="light"] .hover\:text-white:hover { color: #1a1a1a !important; }
+
+/* Light theme - PIN input placeholder */
+:root[data-theme="light"] .placeholder-gray-600::placeholder { color: #aaaaaa !important; }
+
+/* Card hand visibility improvements */
+.player-hand-container {
+  padding: 1rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 150px;
+}
+
+/* Ensure cards don't get cut off */
+.card-wrapper {
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.card-wrapper:hover {
+  transform: translateY(-1rem);
+  z-index: 100 !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.25);
+}

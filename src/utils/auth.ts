@@ -1,14 +1,11 @@
 import { UserAccount } from '../types';
-import { db } from './firebase';
+import { db, auth, googleProvider } from './firebase';
 import {
   doc,
   setDoc,
   getDoc,
-  collection,
-  query,
-  where,
-  getDocs,
 } from 'firebase/firestore';
+import { signInWithPopup } from 'firebase/auth';
 
 const SESSION_KEY = 'uno_session';
 
@@ -113,4 +110,28 @@ export function getSession(): UserAccount | null {
 
 export function clearSession() {
   localStorage.removeItem(SESSION_KEY);
+}
+
+export async function signInWithGoogle(): Promise<{ success: boolean; user?: UserAccount; error?: string }> {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const firebaseUser = result.user;
+
+    const email = firebaseUser.email!.toLowerCase().trim();
+    const name = firebaseUser.displayName || 'Player';
+    const avatar = '😎';
+
+    // Check if user already exists in DB
+    let user = await getUserFromDB(email);
+    if (!user) {
+      // First time Google login — save to Firestore
+      user = { email, password: '', name, avatar };
+      await saveUserToDB(user);
+    }
+
+    setSession(user);
+    return { success: true, user };
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Google sign-in failed!' };
+  }
 }

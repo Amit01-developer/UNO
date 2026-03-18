@@ -40,17 +40,16 @@ export function UnoCard({ card, onClick, playable = false, faceDown = false, sma
   if (faceDown) {
     return (
       <div className={cn(
-        'rounded-2xl border-4 border-white bg-black flex items-center justify-center shadow-2xl relative',
-        small ? 'w-10 h-14' : 'w-20 h-28',
+        'rounded-xl border-4 border-white bg-black flex items-center justify-center shadow-2xl relative',
+        small ? 'w-8 h-11 sm:w-10 sm:h-14' : 'w-14 h-20 sm:w-20 sm:h-28',
       )}>
-        {/* Diagonal stripes pattern */}
-        <div className="absolute inset-1 rounded-xl overflow-hidden">
-          <div className="w-full h-full bg-gradient-to-br from-gray-800 via-gray-700 to-gray-900" 
+        <div className="absolute inset-1 rounded-lg overflow-hidden">
+          <div className="w-full h-full bg-gradient-to-br from-gray-800 via-gray-700 to-gray-900"
                style={{backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.3) 10px, rgba(0,0,0,0.3) 20px)'}} />
         </div>
         <div className={cn(
           'relative rotate-45 bg-gradient-to-br from-red-500 via-yellow-400 via-green-500 to-blue-500 flex items-center justify-center font-black text-black',
-          small ? 'w-6 h-6 text-[8px]' : 'w-12 h-12 text-sm',
+          small ? 'w-5 h-5 text-[6px]' : 'w-8 h-8 sm:w-12 sm:h-12 text-[8px] sm:text-sm',
         )}>
           <span className="rotate-[-45deg]">UNO</span>
         </div>
@@ -65,9 +64,9 @@ export function UnoCard({ card, onClick, playable = false, faceDown = false, sma
       onClick={onClick}
       disabled={!playable}
       className={cn(
-        'rounded-2xl border-4 border-white flex flex-col items-center justify-center shadow-2xl transition-all duration-200 relative overflow-hidden select-none',
+        'rounded-xl border-4 border-white flex flex-col items-center justify-center shadow-2xl transition-all duration-200 relative overflow-hidden select-none',
         colorMap[displayColor],
-        small ? 'w-14 h-20' : 'w-20 h-28',
+        small ? 'w-10 h-14 sm:w-14 sm:h-20' : 'w-14 h-20 sm:w-20 sm:h-28',
         playable && 'hover:scale-110 hover:-translate-y-4 hover:shadow-[0_20px_50px_rgba(0,0,0,0.5)] cursor-pointer ring-4 ring-yellow-400',
         !playable && !highlight && 'opacity-80',
         highlight && 'ring-4 ring-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.6)]',
@@ -76,12 +75,12 @@ export function UnoCard({ card, onClick, playable = false, faceDown = false, sma
       {/* Diamond shape in center */}
       <div className={cn(
         'absolute rotate-45 bg-white flex items-center justify-center',
-        small ? 'w-8 h-8' : 'w-9 h-9',
+        small ? 'w-6 h-6 sm:w-8 sm:h-8' : 'w-7 h-7 sm:w-9 sm:h-9',
       )}>
         <span className={cn(
           'rotate-[-45deg] font-black drop-shadow-lg',
-          small ? 'text-xl' : 'text-2xl',
-          displayColor === 'yellow' ? 'text-yellow-600' : 
+          small ? 'text-base sm:text-xl' : 'text-lg sm:text-2xl',
+          displayColor === 'yellow' ? 'text-yellow-600' :
           displayColor === 'red' ? 'text-red-600' :
           displayColor === 'blue' ? 'text-blue-600' :
           displayColor === 'green' ? 'text-green-600' :
@@ -90,27 +89,27 @@ export function UnoCard({ card, onClick, playable = false, faceDown = false, sma
           {displayValue}
         </span>
       </div>
-      
+
       {/* Top-left corner value */}
       <span className={cn(
         'absolute font-black text-white drop-shadow-md',
-        small ? 'top-1 left-1.5 text-xs' : 'top-2 left-3 text-lg',
+        small ? 'top-0.5 left-1 text-[10px]' : 'top-1 left-2 text-sm sm:top-2 sm:left-3 sm:text-lg',
       )}>
         {displayValue}
       </span>
-      
+
       {/* Bottom-right corner value (rotated) */}
       <span className={cn(
         'absolute font-black text-white drop-shadow-md rotate-180',
-        small ? 'bottom-1 right-1.5 text-xs' : 'bottom-2 right-3 text-lg',
+        small ? 'bottom-0.5 right-1 text-[10px]' : 'bottom-1 right-2 text-sm sm:bottom-2 sm:right-3 sm:text-lg',
       )}>
         {displayValue}
       </span>
-      
+
       {/* Chosen color indicator for wild */}
       {card.chosenColor && (
         <div className={cn(
-          'absolute bottom-1 left-1/2 -translate-x-1/2 rounded-full text-[9px] px-2 py-0.5 font-bold',
+          'absolute bottom-0.5 left-1/2 -translate-x-1/2 rounded-full text-[7px] sm:text-[9px] px-1 sm:px-2 py-0.5 font-bold',
           colorBg[card.chosenColor],
         )}>
           {card.chosenColor.toUpperCase()}

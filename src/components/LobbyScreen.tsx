@@ -91,24 +91,24 @@ export function LobbyScreen({ user, onLogout, onRoomJoined, onPlayAI }: LobbyScr
 
         {/* User Info Card */}
         <div className={cn(
-          "backdrop-blur rounded-2xl p-4 mb-4 border flex items-center justify-between",
+          "backdrop-blur rounded-2xl p-3 sm:p-4 mb-4 border flex items-center justify-between gap-2",
           theme === 'light'
             ? "bg-white border-gray-200 shadow-md"
             : "theme-card-bg theme-shadow"
         )}>
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center text-2xl shadow-lg">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center text-xl sm:text-2xl shadow-lg shrink-0">
               {user.avatar}
             </div>
-            <div>
-              <p className={cn("font-bold", theme === 'light' ? 'text-gray-900' : 'text-white')}>{user.name}</p>
-              <p className={cn("text-xs", theme === 'light' ? 'text-gray-500' : 'text-gray-400')}>{user.email}</p>
+            <div className="min-w-0">
+              <p className={cn("font-bold text-sm sm:text-base truncate", theme === 'light' ? 'text-gray-900' : 'text-white')}>{user.name}</p>
+              <p className={cn("text-xs truncate max-w-[140px] sm:max-w-none", theme === 'light' ? 'text-gray-500' : 'text-gray-400')}>{user.email}</p>
             </div>
           </div>
           <button
             onClick={onLogout}
             className={cn(
-              "logout-btn px-4 py-2 rounded-xl text-sm transition-colors cursor-pointer border",
+              "logout-btn px-3 py-2 rounded-xl text-xs sm:text-sm transition-colors cursor-pointer border shrink-0",
               theme === 'light'
                 ? "bg-red-50 hover:bg-red-100 text-red-600 border-red-200"
                 : "bg-red-900/40 hover:bg-red-800/50 text-red-300 border-red-800/30"
@@ -203,13 +203,13 @@ export function LobbyScreen({ user, onLogout, onRoomJoined, onPlayAI }: LobbyScr
               <label className="block theme-text-primary mb-3 font-semibold text-sm text-center">
                 🤖 {t('botPlayers')}
               </label>
-              <div className="flex gap-4 justify-center">
+              <div className="flex gap-3 sm:gap-4 justify-center">
                 {[1, 2, 3].map(n => (
                   <button
                     key={n}
                     onClick={() => setAiBotCount(n)}
                     className={cn(
-                      'relative w-24 h-28 rounded-2xl font-bold transition-all duration-300 cursor-pointer flex flex-col items-center justify-center gap-1 border-2',
+                      'relative w-20 h-24 sm:w-24 sm:h-28 rounded-2xl font-bold transition-all duration-300 cursor-pointer flex flex-col items-center justify-center gap-1 border-2',
                       aiBotCount === n
                         ? 'bg-gradient-to-br from-purple-500 to-pink-600 border-purple-400 scale-105 shadow-xl shadow-purple-500/30'
                         : theme === 'light'

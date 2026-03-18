@@ -18,17 +18,19 @@ export function PlayerHand({ cards, playableCardIds, onCardClick, isCurrentPlaye
     return a.value.localeCompare(b.value);
   });
 
+  const overlap = cards.length > 12 ? '-2.2rem' : cards.length > 8 ? '-1.6rem' : cards.length > 5 ? '-1.2rem' : '-0.8rem';
+
   return (
     <div className={cn(
-      'flex justify-center items-end px-4 pb-2 pt-6 rounded-2xl transition-all max-w-full overflow-x-auto overflow-y-visible',
+      'flex justify-center items-end px-2 pb-2 pt-6 rounded-2xl transition-all max-w-full overflow-x-auto overflow-y-visible',
       isCurrentPlayer && 'bg-white/5 ring-2 ring-yellow-400/30 shadow-lg shadow-yellow-400/10',
     )}>
       {sortedCards.map((card, index) => (
-        <div 
-          key={card.id} 
-          className="transition-all duration-200 hover:-translate-y-4 hover:z-50"
-          style={{ 
-            marginLeft: index === 0 ? '0' : cards.length > 10 ? '-2rem' : '-1.2rem',
+        <div
+          key={card.id}
+          className="transition-all duration-200 hover:-translate-y-4 hover:z-50 active:-translate-y-4 active:z-50"
+          style={{
+            marginLeft: index === 0 ? '0' : overlap,
             zIndex: index,
           }}
         >

@@ -24,6 +24,7 @@ export interface Player {
   hand: Card[];
   isUno: boolean;
   connected: boolean;
+  rank?: number; // assigned when player finishes (1st, 2nd, etc.)
 }
 
 export interface GameState {
@@ -37,6 +38,8 @@ export interface GameState {
   message: string;
   pendingCard: Card | null;
   lastAction: string;
+  rankings: { rank: number; name: string; avatar: string; email: string }[]; // finished players in order
+  drawnCardId: string | null; // card drawn this turn — only this card can be played
 }
 
 export interface UserAccount {

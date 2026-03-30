@@ -5,6 +5,9 @@ import {
   drawCardAction,
   getPlayableCards,
   canPlayCard,
+  canPlayWild4,
+  getNextPlayerIndex,
+  drawCardsFromPile,
 } from '../gameLogic';
 import { subscribeToRoom, updateRoomGameState } from '../utils/room';
 import { UnoCard } from './UnoCard';
@@ -47,7 +50,18 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
   const myPlayer = gameState.players[myPlayerIndex];
   const topCard = gameState.discardPile[gameState.discardPile.length - 1];
   const isMyTurn = gameState.currentPlayerIndex === myPlayerIndex && gameState.phase === 'playing';
-  const playableCards = isMyTurn ? getPlayableCards(myPlayer.hand, topCard) : [];
+  const hasDrawn = isMyTurn && !!gameState.drawnCardId; // player drew this turn
+
+  // If player drew a card, only that card is playable (if it can be played)
+  const playableCards = isMyTurn
+    ? (hasDrawn
+        ? myPlayer.hand.filter(c => {
+            if (c.id !== gameState.drawnCardId) return false;
+            if (c.value === 'wild4') return canPlayWild4(myPlayer.hand, topCard);
+            return canPlayCard(c, topCard);
+          })
+        : getPlayableCards(myPlayer.hand, topCard))
+    : [];
   const playableCardIds = playableCards.map(c => c.id);
 
   // Get opponents (all players except me) in order
@@ -61,6 +75,15 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
 
   const handleCardClick = (card: Card) => {
     if (!isMyTurn) return;
+
+    // Wild4 has its own restriction check
+    if (card.value === 'wild4') {
+      if (!canPlayWild4(myPlayer.hand, topCard)) return;
+      setPendingWildCard(card);
+      setShowColorPicker(true);
+      return;
+    }
+
     if (!canPlayCard(card, topCard)) return;
 
     if (card.color === 'wild') {
@@ -82,9 +105,42 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
   };
 
   const handleDrawCard = () => {
-    if (!isMyTurn) return;
+    if (!isMyTurn || hasDrawn) return;
     const newState = drawCardAction(gameState);
     updateGame(newState);
+  };
+
+  // After drawing, player can pass without playing
+  const handlePass = () => {
+    if (!isMyTurn || !hasDrawn) return;
+    const nextPlayerIndex = getNextPlayerIndex(gameState.currentPlayerIndex, gameState.direction, gameState.players.length);
+    const nextPlayer = gameState.players[nextPlayerIndex];
+    updateGame({
+      ...gameState,
+      currentPlayerIndex: nextPlayerIndex,
+      drawnCardId: null,
+      message: `${nextPlayer.name}'s turn!`,
+      lastAction: `${myPlayer.name} drew and passed`,
+    });
+  };
+
+  // Catch opponent who forgot to say UNO — penalty: they draw 2 cards
+  const handleCatchUno = (targetEmail: string) => {
+    const targetIdx = gameState.players.findIndex(p => p.email === targetEmail);
+    if (targetIdx === -1) return;
+    const target = { ...gameState.players[targetIdx] };
+    if (target.hand.length !== 1 || target.isUno) return; // already called UNO or not at 1 card
+    const { drawn, newDrawPile, newDiscardPile } = drawCardsFromPile(gameState.drawPile, gameState.discardPile, 2);
+    target.hand = [...target.hand, ...drawn];
+    const newPlayers = [...gameState.players];
+    newPlayers[targetIdx] = target;
+    updateGame({
+      ...gameState,
+      players: newPlayers,
+      drawPile: newDrawPile,
+      discardPile: newDiscardPile,
+      lastAction: `🚨 ${target.name} caught! +2 penalty cards!`,
+    });
   };
 
   const dirArrow = gameState.direction === 1 ? '⟳' : '⟲';
@@ -114,7 +170,23 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
           <div className="theme-card-bg rounded-3xl p-10 theme-shadow border text-center max-w-md w-full mx-4">
             <div className="text-6xl mb-4">🏆</div>
             <h2 className="text-3xl font-black theme-text-primary mb-2">{t('gameOver')}!</h2>
-            <p className="text-xl text-yellow-400 font-bold mb-6">{gameState.message}</p>
+            <p className="text-xl text-yellow-400 font-bold mb-4">{gameState.message}</p>
+
+            {/* Rankings */}
+            {gameState.rankings && gameState.rankings.length > 0 && (
+              <div className="mb-6 space-y-2">
+                {gameState.rankings.map((r) => (
+                  <div key={r.email} className="flex items-center gap-3 px-4 py-2 rounded-xl bg-white/10">
+                    <span className="text-2xl">
+                      {r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : `#${r.rank}`}
+                    </span>
+                    <span className="text-xl">{r.avatar}</span>
+                    <span className="font-bold theme-text-primary">{r.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <button
               onClick={onLeave}
               className="w-full px-8 py-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-gray-900 font-bold rounded-xl text-lg hover:scale-105 transition-transform cursor-pointer"
@@ -206,11 +278,11 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
             {/* Draw pile */}
             <button
               onClick={handleDrawCard}
-              disabled={!isMyTurn}
+              disabled={!isMyTurn || hasDrawn}
               className={cn(
                 'relative transition-all duration-200',
-                isMyTurn && 'hover:scale-110 cursor-pointer hover:rotate-3',
-                !isMyTurn && 'opacity-70',
+                isMyTurn && !hasDrawn && 'hover:scale-110 cursor-pointer hover:rotate-3',
+                (!isMyTurn || hasDrawn) && 'opacity-70',
               )}
             >
               <div className="w-14 h-20 sm:w-20 sm:h-28 rounded-xl border-4 border-gray-700 bg-gradient-to-br from-gray-800 to-black flex items-center justify-center shadow-2xl">
@@ -221,9 +293,14 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
               <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-black/60 rounded text-[9px] text-white font-bold whitespace-nowrap backdrop-blur-sm">
                 {t('draw')} ({gameState.drawPile.length})
               </div>
-              {isMyTurn && playableCards.length === 0 && (
+              {isMyTurn && !hasDrawn && playableCards.length === 0 && (
                 <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-1 bg-yellow-400 text-gray-900 rounded-lg text-[10px] font-black whitespace-nowrap animate-bounce shadow-lg">
                   👆 {t('drawCard')}
+                </div>
+              )}
+              {hasDrawn && (
+                <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-1 bg-blue-400 text-gray-900 rounded-lg text-[10px] font-black whitespace-nowrap shadow-lg">
+                  Already drew!
                 </div>
               )}
             </button>
@@ -250,6 +327,33 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
           </div>
         </div>
       </div>
+
+      {/* Pass button after drawing */}
+      {hasDrawn && (
+        <div className="flex justify-center px-4 pt-1">
+          <button
+            onClick={handlePass}
+            className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl text-sm shadow-lg transition-all hover:scale-105 cursor-pointer"
+          >
+            ⏭ Pass Turn
+          </button>
+        </div>
+      )}
+
+      {/* UNO Catch buttons — show when an opponent has 1 card and hasn't called UNO */}
+      {!isMyTurn && opponents.some(o => o.hand.length === 1 && !o.isUno) && (
+        <div className="flex justify-center gap-2 px-4 pt-1 flex-wrap">
+          {opponents.filter(o => o.hand.length === 1 && !o.isUno).map(o => (
+            <button
+              key={o.email}
+              onClick={() => handleCatchUno(o.email)}
+              className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-black rounded-xl text-xs shadow-lg animate-pulse transition-all hover:scale-105 cursor-pointer"
+            >
+              🚨 Catch {o.name} (no UNO!)
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Message bar */}
       <div className="flex items-center justify-center px-4 py-2 flex-wrap gap-2">

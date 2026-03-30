@@ -24,6 +24,13 @@ interface AIGameBoardProps {
   onLeave: () => void;
 }
 
+interface RankNotif {
+  rank: number;
+  name: string;
+  avatar: string;
+  isMe: boolean;
+}
+
 export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
   const { t, language, theme, toggleLanguage, toggleTheme } = useApp();
   const [gameState, setGameState] = useState<GameState>(() =>
@@ -32,9 +39,29 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [pendingWildCard, setPendingWildCard] = useState<Card | null>(null);
   const [showGameOver, setShowGameOver] = useState(false);
+  const [rankNotif, setRankNotif] = useState<RankNotif | null>(null);
   const botTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevRankingsLen = useRef(0);
 
   const isLight = theme === 'light';
+
+  // Detect new ranking entry and show popup
+  useEffect(() => {
+    const rankings = gameState.rankings ?? [];
+    if (rankings.length > prevRankingsLen.current) {
+      const newest = rankings[rankings.length - 1];
+      setRankNotif({
+        rank: newest.rank,
+        name: newest.name,
+        avatar: newest.avatar,
+        isMe: newest.email === user.email,
+      });
+      const timer = setTimeout(() => setRankNotif(null), 2500);
+      prevRankingsLen.current = rankings.length;
+      return () => clearTimeout(timer);
+    }
+    prevRankingsLen.current = rankings.length;
+  }, [gameState.rankings, user.email]);
 
   const processBotTurn = useCallback((state: GameState) => {
     if (state.phase !== 'playing') return;
@@ -69,10 +96,13 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
   const myPlayerIndex = gameState.players.findIndex(p => p.email === user.email);
   const myPlayer = gameState.players[myPlayerIndex];
   const topCard = gameState.discardPile[gameState.discardPile.length - 1];
-  const isMyTurn = gameState.currentPlayerIndex === myPlayerIndex && gameState.phase === 'playing';
+  const isMyTurn = myPlayerIndex !== -1 && gameState.currentPlayerIndex === myPlayerIndex && gameState.phase === 'playing';
   const hasDrawn = isMyTurn && !!gameState.drawnCardId;
 
-  const playableCards = isMyTurn
+  // My rank if I've already finished
+  const myRankEntry = (gameState.rankings ?? []).find(r => r.email === user.email);
+
+  const playableCards = isMyTurn && myPlayer
     ? (hasDrawn
         ? myPlayer.hand.filter(c => {
             if (c.id !== gameState.drawnCardId) return false;
@@ -84,35 +114,33 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
   const playableCardIds = playableCards.map(c => c.id);
   const opponents = gameState.players.filter((_, i) => i !== myPlayerIndex);
 
-  const handleCardClick = (card: Card) => {
-    if (!isMyTurn) return;
+  const updateState = (newState: GameState) => {
+    setGameState(newState);
+    if (newState.phase === 'game-over') setTimeout(() => setShowGameOver(true), 500);
+  };
 
+  const handleCardClick = (card: Card) => {
+    if (!isMyTurn || !myPlayer) return;
     if (card.value === 'wild4') {
       if (!canPlayWild4(myPlayer.hand, topCard)) return;
       setPendingWildCard(card);
       setShowColorPicker(true);
       return;
     }
-
     if (!canPlayCard(card, topCard)) return;
-
     if (card.color === 'wild') {
       setPendingWildCard(card);
       setShowColorPicker(true);
       return;
     }
-    const newState = playCard(gameState, card.id);
-    setGameState(newState);
-    if (newState.phase === 'game-over') setTimeout(() => setShowGameOver(true), 500);
+    updateState(playCard(gameState, card.id));
   };
 
   const handleColorSelect = (color: CardColor) => {
     if (!pendingWildCard) return;
     setShowColorPicker(false);
-    const newState = playCard(gameState, pendingWildCard.id, color);
+    updateState(playCard(gameState, pendingWildCard.id, color));
     setPendingWildCard(null);
-    setGameState(newState);
-    if (newState.phase === 'game-over') setTimeout(() => setShowGameOver(true), 500);
   };
 
   const handleDrawCard = () => {
@@ -121,17 +149,16 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
   };
 
   const handlePass = () => {
-    if (!isMyTurn || !hasDrawn) return;
+    if (!isMyTurn || !hasDrawn || !myPlayer) return;
     const nextPlayerIndex = getNextPlayerIndex(gameState.currentPlayerIndex, gameState.direction, gameState.players.length);
     const nextPlayer = gameState.players[nextPlayerIndex];
-    const newState = {
+    setGameState({
       ...gameState,
       currentPlayerIndex: nextPlayerIndex,
       drawnCardId: null,
       message: `${nextPlayer.name}'s turn!`,
       lastAction: `${myPlayer.name} drew and passed`,
-    };
-    setGameState(newState);
+    });
   };
 
   const handleCatchUno = (targetEmail: string) => {
@@ -154,7 +181,9 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
 
   const handlePlayAgain = () => {
     if (botTimeoutRef.current) clearTimeout(botTimeoutRef.current);
+    prevRankingsLen.current = 0;
     setShowGameOver(false);
+    setRankNotif(null);
     setGameState(initializeAIGame(user.name, user.email, user.avatar, botCount));
   };
 
@@ -163,15 +192,16 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
     red: 'bg-red-500', blue: 'bg-blue-500',
     green: 'bg-green-500', yellow: 'bg-yellow-400', wild: 'bg-purple-500',
   };
-  const winnerPlayer = gameState.winner ? gameState.players.find(p => p.id === gameState.winner) : null;
-  const didIWin = winnerPlayer?.email === user.email;
-  const currentTurnPlayer = gameState.players[gameState.currentPlayerIndex];
+  const currentTurnPlayer = gameState.players[gameState.currentPlayerIndex] ?? { name: '' };
 
-  const sortedCards = [...myPlayer.hand].sort((a, b) => {
+  const rankEmoji = (rank: number) =>
+    rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+
+  const sortedCards = myPlayer ? [...myPlayer.hand].sort((a, b) => {
     const colorOrder = ['red', 'yellow', 'green', 'blue', 'wild'];
     const cd = colorOrder.indexOf(a.color) - colorOrder.indexOf(b.color);
     return cd !== 0 ? cd : a.value.localeCompare(b.value);
-  });
+  }) : [];
 
   return (
     <div className="flex flex-col w-full h-screen overflow-hidden select-none" style={{
@@ -181,18 +211,62 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
     }}>
       {showColorPicker && <ColorPicker onSelect={handleColorSelect} />}
 
-      {/* Game Over */}
+      {/* Rank notification toast — shows when any player finishes */}
+      {rankNotif && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 animate-bounce">
+          <div className={cn(
+            "px-6 py-4 rounded-2xl shadow-2xl border text-center",
+            rankNotif.isMe
+              ? "bg-yellow-400 border-yellow-500 text-gray-900"
+              : isLight ? "bg-white border-gray-200 text-gray-800" : "bg-gray-800 border-white/20 text-white"
+          )}>
+            <div className="text-3xl mb-1">{rankEmoji(rankNotif.rank)}</div>
+            <div className="font-black text-lg">
+              {rankNotif.isMe ? '🎉 You finished!' : `${rankNotif.avatar} ${rankNotif.name} finished!`}
+            </div>
+            <div className="text-sm font-bold opacity-80">Position #{rankNotif.rank}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Game Over — final rankings */}
       {showGameOver && gameState.phase === 'game-over' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className={cn(
-            "rounded-3xl p-10 text-center max-w-md w-full mx-4 border shadow-2xl",
+            "rounded-3xl p-8 text-center max-w-md w-full mx-4 border shadow-2xl",
             isLight ? "bg-white border-gray-200" : "bg-gray-900 border-white/10"
           )}>
-            <div className="text-7xl mb-4">{didIWin ? '🏆' : '😢'}</div>
-            <h2 className={cn("text-3xl font-black mb-2", isLight ? "text-gray-900" : "text-white")}>
-              {didIWin ? t('youWon') : t('gameOver')}!
+            <div className="text-6xl mb-3">{myRankEntry?.rank === 1 ? '🏆' : myRankEntry ? rankEmoji(myRankEntry.rank) : '🎮'}</div>
+            <h2 className={cn("text-3xl font-black mb-1", isLight ? "text-gray-900" : "text-white")}>
+              {myRankEntry?.rank === 1 ? t('youWon') : t('gameOver')}!
             </h2>
-            <p className="text-xl text-yellow-500 font-bold mb-6">{gameState.message}</p>
+            {myRankEntry && (
+              <p className="text-lg text-yellow-500 font-bold mb-3">
+                You finished {rankEmoji(myRankEntry.rank)}
+              </p>
+            )}
+
+            {/* Rankings list */}
+            <div className="mb-6 space-y-2">
+              {(gameState.rankings ?? []).map((r) => (
+                <div
+                  key={r.email}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-2 rounded-xl",
+                    r.email === user.email
+                      ? "bg-yellow-400/20 border border-yellow-400/50"
+                      : isLight ? "bg-gray-100" : "bg-white/10"
+                  )}
+                >
+                  <span className="text-xl">{rankEmoji(r.rank)}</span>
+                  <span className="text-xl">{r.avatar}</span>
+                  <span className={cn("font-bold flex-1 text-left", isLight ? "text-gray-900" : "text-white")}>
+                    {r.name} {r.email === user.email ? '(You)' : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+
             <div className="space-y-3">
               <button onClick={handlePlayAgain} className="w-full py-3 bg-green-500 hover:bg-green-400 text-white font-bold rounded-xl text-lg transition-all cursor-pointer">
                 🔄 {t('playAgain')}
@@ -210,7 +284,6 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
         "flex items-center justify-between px-2 sm:px-4 py-2 border-b shrink-0 gap-1",
         isLight ? "bg-white/80 border-gray-200 backdrop-blur" : "bg-black/40 border-white/10"
       )}>
-        {/* Left: Player vs Bot */}
         <div className="flex items-center gap-1 sm:gap-2 min-w-0 flex-1">
           <div className={cn(
             "w-8 h-8 sm:w-9 sm:h-9 rounded-lg border-2 border-yellow-400 overflow-hidden flex items-center justify-center text-lg sm:text-xl shrink-0",
@@ -220,10 +293,18 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
           </div>
           <span className={cn("font-bold text-xs sm:text-sm truncate max-w-[60px] sm:max-w-none", isLight ? "text-gray-900" : "text-white")}>{user.name}</span>
           <span className={cn("text-xs shrink-0", isLight ? "text-gray-500" : "text-gray-400")}>vs</span>
-          <span className={cn("font-bold text-xs sm:text-sm truncate max-w-[70px] sm:max-w-none", isLight ? "text-gray-900" : "text-white")}>{opponents.map(o => o.name).join(', ')}</span>
+          <span className={cn("font-bold text-xs sm:text-sm truncate max-w-[70px] sm:max-w-none", isLight ? "text-gray-900" : "text-white")}>
+            {opponents.map(o => o.name).join(', ')}
+          </span>
         </div>
 
-        {/* Center: Turn indicator */}
+        {/* My rank badge if I've already finished */}
+        {myRankEntry && gameState.phase === 'playing' && (
+          <div className="px-3 py-1 bg-yellow-400 text-gray-900 rounded-full text-xs font-black shrink-0">
+            {rankEmoji(myRankEntry.rank)} Finished!
+          </div>
+        )}
+
         <div className={cn(
           'px-2 sm:px-5 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-bold border-2 transition-all shrink-0',
           isMyTurn
@@ -235,30 +316,23 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
           {isMyTurn ? `● ${t('yourTurn')}!` : `⏳ ${currentTurnPlayer.name}`}
         </div>
 
-        {/* Right: Controls */}
         <div className="flex items-center gap-1 shrink-0">
           <MusicControls />
           <button onClick={toggleLanguage} className={cn(
             "hidden sm:flex items-center gap-1 px-2 py-1 rounded-lg text-xs border font-bold cursor-pointer transition-all",
-            isLight
-              ? "bg-gray-100 hover:bg-gray-200 text-gray-800 border-gray-300"
-              : "bg-white/10 hover:bg-white/20 text-white border-white/20"
+            isLight ? "bg-gray-100 hover:bg-gray-200 text-gray-800 border-gray-300" : "bg-white/10 hover:bg-white/20 text-white border-white/20"
           )}>
             🌐 {language === 'en' ? 'हिंदी' : 'EN'}
           </button>
           <button onClick={toggleTheme} className={cn(
             "w-7 h-7 sm:w-8 sm:h-8 rounded-lg border flex items-center justify-center cursor-pointer transition-all",
-            isLight
-              ? "bg-gray-100 hover:bg-gray-200 border-gray-300"
-              : "bg-white/10 hover:bg-white/20 border-white/20"
+            isLight ? "bg-gray-100 hover:bg-gray-200 border-gray-300" : "bg-white/10 hover:bg-white/20 border-white/20"
           )}>
             {theme === 'dark' ? '☀️' : '🌙'}
           </button>
           <button onClick={onLeave} className={cn(
             "w-7 h-7 sm:w-8 sm:h-8 rounded-lg border flex items-center justify-center cursor-pointer transition-all",
-            isLight
-              ? "bg-gray-100 hover:bg-red-100 border-gray-300 text-gray-700"
-              : "bg-white/10 hover:bg-red-500/40 border-white/20 text-white"
+            isLight ? "bg-gray-100 hover:bg-red-100 border-gray-300 text-gray-700" : "bg-white/10 hover:bg-red-500/40 border-white/20 text-white"
           )}>
             ✕
           </button>
@@ -269,6 +343,7 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
       <div className="flex justify-center items-start pt-2 pb-1 shrink-0 flex-wrap gap-2 px-2">
         {opponents.map((opp) => {
           const isOppTurn = gameState.currentPlayerIndex === gameState.players.findIndex(p => p.id === opp.id);
+          const oppRank = (gameState.rankings ?? []).find(r => r.email === opp.email);
           return (
             <div key={opp.id} className="flex flex-col items-center gap-1">
               <div className={cn(
@@ -286,11 +361,14 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
                 </div>
                 <div className="flex flex-col min-w-0">
                   <span className={cn("font-bold text-xs sm:text-sm truncate max-w-[80px]", isLight ? "text-gray-900" : "text-white")}>{opp.name}</span>
-                  <div className={cn("w-12 h-1 rounded-full mt-1", isLight ? "bg-gray-200" : "bg-gray-600")}>
-                    <div className="h-1 bg-yellow-400 rounded-full" style={{ width: `${Math.min(100, (opp.hand.length / 14) * 100)}%` }} />
-                  </div>
+                  {oppRank ? (
+                    <span className="text-xs font-bold text-yellow-400">{rankEmoji(oppRank.rank)} Finished</span>
+                  ) : (
+                    <div className={cn("w-12 h-1 rounded-full mt-1", isLight ? "bg-gray-200" : "bg-gray-600")}>
+                      <div className="h-1 bg-yellow-400 rounded-full" style={{ width: `${Math.min(100, (opp.hand.length / 14) * 100)}%` }} />
+                    </div>
+                  )}
                 </div>
-                {/* Opponent cards fan */}
                 <div className="flex items-center ml-1">
                   {Array.from({ length: Math.min(opp.hand.length, 6) }).map((_, i) => (
                     <div
@@ -319,7 +397,6 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
 
       {/* CENTER: Draw + Discard + Message */}
       <div className="flex-1 flex items-center justify-center gap-3 sm:gap-4 relative px-2">
-        {/* Color dot - left side */}
         <div className="flex flex-col items-center gap-1">
           <div className={cn('w-7 h-7 sm:w-8 sm:h-8 rounded-full shadow-xl', colorDot[currentColor],
             isLight ? 'border-2 border-gray-300' : 'border-2 border-white'
@@ -327,7 +404,6 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
           <div className={cn("text-[8px] sm:text-[9px] font-bold uppercase tracking-wider", isLight ? "text-gray-500" : "text-gray-400")}>{t('currentColor')}</div>
         </div>
 
-        {/* Draw pile */}
         <div className="flex flex-col items-center gap-1">
           <button
             onClick={handleDrawCard}
@@ -359,7 +435,6 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
           </div>
         </div>
 
-        {/* Discard pile */}
         <div className="flex flex-col items-center gap-1">
           <div className="relative">
             <div className="absolute -inset-2 bg-yellow-400/20 rounded-3xl blur-xl animate-pulse" />
@@ -371,7 +446,6 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
           </div>
         </div>
 
-        {/* Message bubble - right side */}
         <div className="flex flex-col items-center gap-1 max-w-[80px] sm:max-w-[180px]">
           <div className={cn(
             "text-[10px] sm:text-sm font-medium px-2 sm:px-4 py-1 sm:py-2 rounded-2xl shadow-lg text-center",
@@ -384,7 +458,6 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
 
       {/* PLAYER HAND */}
       <div className="shrink-0 pb-3">
-        {/* Pass button after drawing */}
         {hasDrawn && (
           <div className="flex justify-center mb-2">
             <button
@@ -396,7 +469,6 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
           </div>
         )}
 
-        {/* UNO Catch buttons */}
         {opponents.some(o => o.hand.length === 1 && !o.isUno) && (
           <div className="flex justify-center gap-2 mb-2 flex-wrap px-2">
             {opponents.filter(o => o.hand.length === 1 && !o.isUno).map(o => (
@@ -410,6 +482,7 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
             ))}
           </div>
         )}
+
         <div className="flex items-center gap-2 px-3 mb-1 flex-wrap">
           <div className={cn(
             "w-7 h-7 sm:w-8 sm:h-8 rounded-lg border-2 border-yellow-400 flex items-center justify-center text-base sm:text-lg",
@@ -423,33 +496,55 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
           )}>
             {user.name}
           </span>
-          <span className={cn("text-xs", isLight ? "text-gray-500" : "text-gray-400")}>
-            {myPlayer.hand.length} {myPlayer.hand.length === 1 ? t('card') : t('cards')}
-          </span>
-          {myPlayer.hand.length === 1 && (
-            <span className="px-2 py-0.5 bg-red-500 text-white font-black text-xs animate-pulse rounded-full">{t('uno')}! 🔥</span>
-          )}
+          {myPlayer ? (
+            <>
+              <span className={cn("text-xs", isLight ? "text-gray-500" : "text-gray-400")}>
+                {myPlayer.hand.length} {myPlayer.hand.length === 1 ? t('card') : t('cards')}
+              </span>
+              {myPlayer.hand.length === 1 && (
+                <span className="px-2 py-0.5 bg-red-500 text-white font-black text-xs animate-pulse rounded-full">{t('uno')}! 🔥</span>
+              )}
+            </>
+          ) : myRankEntry ? (
+            <span className="px-2 py-0.5 bg-yellow-400 text-gray-900 font-black text-xs rounded-full">
+              {rankEmoji(myRankEntry.rank)} Finished! Watching...
+            </span>
+          ) : null}
         </div>
 
-        {/* Cards */}
-        <div className="flex justify-center items-end px-2 overflow-x-auto overflow-y-visible pb-2 pt-4">
-          {sortedCards.map((card, index) => (
-            <div
-              key={card.id}
-              className="transition-all duration-200 hover:-translate-y-6 hover:z-50 active:-translate-y-6 active:z-50"
-              style={{
-                marginLeft: index === 0 ? 0 : sortedCards.length > 10 ? '-1.6rem' : sortedCards.length > 6 ? '-1rem' : '-0.7rem',
-                zIndex: index,
-              }}
-            >
-              <UnoCard
-                card={card}
-                playable={isMyTurn && playableCardIds.includes(card.id)}
-                onClick={() => handleCardClick(card)}
-              />
+        {/* Cards — only show if player is still in game */}
+        {myPlayer && (
+          <div className="flex justify-center items-end px-2 overflow-x-auto overflow-y-visible pb-2 pt-4">
+            {sortedCards.map((card, index) => (
+              <div
+                key={card.id}
+                className="transition-all duration-200 hover:-translate-y-6 hover:z-50 active:-translate-y-6 active:z-50"
+                style={{
+                  marginLeft: index === 0 ? 0 : sortedCards.length > 10 ? '-1.6rem' : sortedCards.length > 6 ? '-1rem' : '-0.7rem',
+                  zIndex: index,
+                }}
+              >
+                <UnoCard
+                  card={card}
+                  playable={isMyTurn && playableCardIds.includes(card.id)}
+                  onClick={() => handleCardClick(card)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Spectator message when player has finished */}
+        {!myPlayer && myRankEntry && gameState.phase === 'playing' && (
+          <div className="flex justify-center py-4">
+            <div className={cn(
+              "px-6 py-3 rounded-2xl text-sm font-bold border",
+              isLight ? "bg-white border-gray-200 text-gray-600" : "bg-white/10 border-white/20 text-gray-300"
+            )}>
+              👀 Watching the rest of the game...
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

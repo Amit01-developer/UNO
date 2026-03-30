@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { GameState, Card, CardColor, UserAccount } from '../types';
 import {
   playCard,
@@ -25,11 +25,23 @@ interface GameBoardProps {
   onLeave: () => void;
 }
 
+interface RankNotif {
+  rank: number;
+  name: string;
+  avatar: string;
+  isMe: boolean;
+}
+
+const rankEmoji = (rank: number) =>
+  rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+
 export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoardProps) {
   const { t, language, theme, toggleLanguage, toggleTheme } = useApp();
   const [gameState, setGameState] = useState<GameState>(initialGameState);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [pendingWildCard, setPendingWildCard] = useState<Card | null>(null);
+  const [rankNotif, setRankNotif] = useState<RankNotif | null>(null);
+  const prevRankingsLen = useRef(0);
 
   // Real-time Firestore listener
   useEffect(() => {
@@ -40,20 +52,39 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
     return () => unsub();
   }, [roomPin, onLeave]);
 
+  // Detect new ranking entry and show toast
+  useEffect(() => {
+    const rankings = gameState.rankings ?? [];
+    if (rankings.length > prevRankingsLen.current) {
+      const newest = rankings[rankings.length - 1];
+      setRankNotif({
+        rank: newest.rank,
+        name: newest.name,
+        avatar: newest.avatar,
+        isMe: newest.email === user.email,
+      });
+      const timer = setTimeout(() => setRankNotif(null), 2500);
+      prevRankingsLen.current = rankings.length;
+      return () => clearTimeout(timer);
+    }
+    prevRankingsLen.current = rankings.length;
+  }, [gameState.rankings, user.email]);
+
   const updateGame = useCallback((newState: GameState) => {
     setGameState(newState);
-    updateRoomGameState(roomPin, newState); // async, fire-and-forget
+    updateRoomGameState(roomPin, newState);
   }, [roomPin]);
 
-  // Find current user's player
   const myPlayerIndex = gameState.players.findIndex(p => p.email === user.email);
   const myPlayer = gameState.players[myPlayerIndex];
   const topCard = gameState.discardPile[gameState.discardPile.length - 1];
-  const isMyTurn = gameState.currentPlayerIndex === myPlayerIndex && gameState.phase === 'playing';
-  const hasDrawn = isMyTurn && !!gameState.drawnCardId; // player drew this turn
+  const isMyTurn = myPlayerIndex !== -1 && gameState.currentPlayerIndex === myPlayerIndex && gameState.phase === 'playing';
+  const hasDrawn = isMyTurn && !!gameState.drawnCardId;
 
-  // If player drew a card, only that card is playable (if it can be played)
-  const playableCards = isMyTurn
+  // My rank if I've already finished
+  const myRankEntry = (gameState.rankings ?? []).find(r => r.email === user.email);
+
+  const playableCards = isMyTurn && myPlayer
     ? (hasDrawn
         ? myPlayer.hand.filter(c => {
             if (c.id !== gameState.drawnCardId) return false;
@@ -64,7 +95,6 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
     : [];
   const playableCardIds = playableCards.map(c => c.id);
 
-  // Get opponents (all players except me) in order
   const opponents = gameState.players.filter((_, i) => i !== myPlayerIndex);
   const positions: ('left' | 'top' | 'right')[] =
     opponents.length === 1 ? ['top'] :
@@ -74,45 +104,36 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
     ['left', 'left', 'top', 'right', 'right'];
 
   const handleCardClick = (card: Card) => {
-    if (!isMyTurn) return;
-
-    // Wild4 has its own restriction check
+    if (!isMyTurn || !myPlayer) return;
     if (card.value === 'wild4') {
       if (!canPlayWild4(myPlayer.hand, topCard)) return;
       setPendingWildCard(card);
       setShowColorPicker(true);
       return;
     }
-
     if (!canPlayCard(card, topCard)) return;
-
     if (card.color === 'wild') {
       setPendingWildCard(card);
       setShowColorPicker(true);
       return;
     }
-
-    const newState = playCard(gameState, card.id);
-    updateGame(newState);
+    updateGame(playCard(gameState, card.id));
   };
 
   const handleColorSelect = (color: CardColor) => {
     if (!pendingWildCard) return;
     setShowColorPicker(false);
-    const newState = playCard(gameState, pendingWildCard.id, color);
-    updateGame(newState);
+    updateGame(playCard(gameState, pendingWildCard.id, color));
     setPendingWildCard(null);
   };
 
   const handleDrawCard = () => {
     if (!isMyTurn || hasDrawn) return;
-    const newState = drawCardAction(gameState);
-    updateGame(newState);
+    updateGame(drawCardAction(gameState));
   };
 
-  // After drawing, player can pass without playing
   const handlePass = () => {
-    if (!isMyTurn || !hasDrawn) return;
+    if (!isMyTurn || !hasDrawn || !myPlayer) return;
     const nextPlayerIndex = getNextPlayerIndex(gameState.currentPlayerIndex, gameState.direction, gameState.players.length);
     const nextPlayer = gameState.players[nextPlayerIndex];
     updateGame({
@@ -124,12 +145,11 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
     });
   };
 
-  // Catch opponent who forgot to say UNO — penalty: they draw 2 cards
   const handleCatchUno = (targetEmail: string) => {
     const targetIdx = gameState.players.findIndex(p => p.email === targetEmail);
     if (targetIdx === -1) return;
     const target = { ...gameState.players[targetIdx] };
-    if (target.hand.length !== 1 || target.isUno) return; // already called UNO or not at 1 card
+    if (target.hand.length !== 1 || target.isUno) return;
     const { drawn, newDrawPile, newDiscardPile } = drawCardsFromPile(gameState.drawPile, gameState.discardPile, 2);
     target.hand = [...target.hand, ...drawn];
     const newPlayers = [...gameState.players];
@@ -146,14 +166,10 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
   const dirArrow = gameState.direction === 1 ? '⟳' : '⟲';
   const currentColor = topCard.chosenColor || topCard.color;
   const colorIndicator: Record<string, string> = {
-    red: 'bg-red-500',
-    blue: 'bg-blue-500',
-    green: 'bg-green-500',
-    yellow: 'bg-yellow-400',
-    wild: 'bg-purple-500',
+    red: 'bg-red-500', blue: 'bg-blue-500',
+    green: 'bg-green-500', yellow: 'bg-yellow-400', wild: 'bg-purple-500',
   };
-
-  const currentTurnPlayer = gameState.players[gameState.currentPlayerIndex];
+  const currentTurnPlayer = gameState.players[gameState.currentPlayerIndex] ?? { name: '' };
 
   return (
     <div className="relative w-full min-h-screen flex flex-col" style={{
@@ -161,27 +177,62 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
         ? 'linear-gradient(160deg, #f0f4f8 0%, #e2e8f0 50%, #cbd5e1 100%)'
         : 'radial-gradient(ellipse at center, #2563a8 0%, #1a4d7a 50%, #0f3a5f 100%)'
     }}>
-      {/* Color Picker Modal */}
       {showColorPicker && <ColorPicker onSelect={handleColorSelect} />}
+
+      {/* Rank notification toast */}
+      {rankNotif && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 animate-bounce">
+          <div className={cn(
+            "px-6 py-4 rounded-2xl shadow-2xl border text-center",
+            rankNotif.isMe
+              ? "bg-yellow-400 border-yellow-500 text-gray-900"
+              : theme === 'light' ? "bg-white border-gray-200 text-gray-800" : "bg-gray-800 border-white/20 text-white"
+          )}>
+            <div className="text-3xl mb-1">{rankEmoji(rankNotif.rank)}</div>
+            <div className="font-black text-lg">
+              {rankNotif.isMe ? '🎉 You finished!' : `${rankNotif.avatar} ${rankNotif.name} finished!`}
+            </div>
+            <div className="text-sm font-bold opacity-80">Position #{rankNotif.rank}</div>
+          </div>
+        </div>
+      )}
 
       {/* Game Over Overlay */}
       {gameState.phase === 'game-over' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="theme-card-bg rounded-3xl p-10 theme-shadow border text-center max-w-md w-full mx-4">
-            <div className="text-6xl mb-4">🏆</div>
-            <h2 className="text-3xl font-black theme-text-primary mb-2">{t('gameOver')}!</h2>
-            <p className="text-xl text-yellow-400 font-bold mb-4">{gameState.message}</p>
+          <div className={cn(
+            "rounded-3xl p-8 text-center max-w-md w-full mx-4 border shadow-2xl",
+            theme === 'light' ? "bg-white border-gray-200" : "bg-gray-900 border-white/10"
+          )}>
+            <div className="text-6xl mb-3">
+              {myRankEntry?.rank === 1 ? '🏆' : myRankEntry ? rankEmoji(myRankEntry.rank) : '🎮'}
+            </div>
+            <h2 className={cn("text-3xl font-black mb-1", theme === 'light' ? "text-gray-900" : "text-white")}>
+              {myRankEntry?.rank === 1 ? t('youWon') : t('gameOver')}!
+            </h2>
+            {myRankEntry && (
+              <p className="text-lg text-yellow-400 font-bold mb-3">
+                You finished {rankEmoji(myRankEntry.rank)}
+              </p>
+            )}
 
-            {/* Rankings */}
             {gameState.rankings && gameState.rankings.length > 0 && (
               <div className="mb-6 space-y-2">
                 {gameState.rankings.map((r) => (
-                  <div key={r.email} className="flex items-center gap-3 px-4 py-2 rounded-xl bg-white/10">
-                    <span className="text-2xl">
-                      {r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : `#${r.rank}`}
-                    </span>
+                  <div
+                    key={r.email}
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-2 rounded-xl",
+                      r.email === user.email
+                        ? "bg-yellow-400/20 border border-yellow-400/50"
+                        : theme === 'light' ? "bg-gray-100" : "bg-white/10"
+                    )}
+                  >
+                    <span className="text-xl">{rankEmoji(r.rank)}</span>
                     <span className="text-xl">{r.avatar}</span>
-                    <span className="font-bold theme-text-primary">{r.name}</span>
+                    <span className={cn("font-bold flex-1 text-left", theme === 'light' ? "text-gray-900" : "text-white")}>
+                      {r.name} {r.email === user.email ? '(You)' : ''}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -216,6 +267,13 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          {/* My rank badge if already finished */}
+          {myRankEntry && gameState.phase === 'playing' && (
+            <div className="px-2 py-1 bg-yellow-400 text-gray-900 rounded-full text-xs font-black">
+              {rankEmoji(myRankEntry.rank)} Finished!
+            </div>
+          )}
+
           <div className={cn(
             'px-2 sm:px-4 py-1 sm:py-1.5 rounded-lg text-xs font-bold shadow-md',
             isMyTurn ? 'bg-green-500 text-white animate-pulse' : theme === 'light' ? 'bg-gray-100 text-gray-600' : 'bg-gray-700/80 text-gray-300'
@@ -271,7 +329,6 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
 
         {/* Center - Draw + Discard */}
         <div className="absolute top-[60%] sm:top-[65%] left-1/2 -translate-x-1/2 -translate-y-1/2">
-          {/* Table Circle - hidden on very small screens */}
           <div className="hidden sm:block absolute inset-0 w-[400px] h-[280px] -translate-x-1/2 -translate-y-1/2 left-1/2 top-1/2 rounded-[50%] bg-gradient-to-br from-green-700/40 to-green-900/40 border-4 border-yellow-600/30 shadow-2xl" />
 
           <div className="relative flex items-center gap-4 sm:gap-6 z-10">
@@ -340,7 +397,7 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
         </div>
       )}
 
-      {/* UNO Catch buttons — show when an opponent has 1 card and hasn't called UNO */}
+      {/* UNO Catch buttons */}
       {!isMyTurn && opponents.some(o => o.hand.length === 1 && !o.isUno) && (
         <div className="flex justify-center gap-2 px-4 pt-1 flex-wrap">
           {opponents.filter(o => o.hand.length === 1 && !o.isUno).map(o => (
@@ -379,41 +436,52 @@ export function GameBoard({ user, initialGameState, roomPin, onLeave }: GameBoar
         )}
       </div>
 
-      {/* Player's hand */}
-      <div className="px-2 sm:px-4 pb-6 sm:pb-8 pt-1 overflow-visible">
-        <div className="flex items-center justify-between mb-1 px-1 sm:px-2">
-          <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg border-2 border-white/30">
-              <span className="text-sm">{user.avatar}</span>
-            </div>
-            <span className={cn(
-              'px-2 sm:px-3 py-1 rounded-lg text-xs sm:text-sm font-bold shadow-md',
-              isMyTurn
-                ? 'bg-yellow-400 text-gray-900'
-                : theme === 'light' ? 'bg-gray-200 text-gray-700' : 'bg-gray-700/80 text-gray-200',
-            )}>
-              {user.name}
-            </span>
-            <span className={cn(
-              "px-1.5 sm:px-2 py-1 rounded text-xs font-bold border",
-              theme === 'light' ? "bg-gray-100 text-gray-700 border-gray-200" : "bg-black/40 backdrop-blur-sm text-white border-white/10"
-            )}>
-              {myPlayer.hand.length} {myPlayer.hand.length === 1 ? t('card') : t('cards')}
-            </span>
-            {myPlayer.hand.length === 1 && (
-              <span className="px-2 py-1 bg-red-500 text-white font-black text-xs animate-pulse rounded shadow-lg">
-                {t('uno')}! 🔥
+      {/* Player's hand — hidden once they've finished */}
+      {myPlayer ? (
+        <div className="px-2 sm:px-4 pb-6 sm:pb-8 pt-1 overflow-visible">
+          <div className="flex items-center justify-between mb-1 px-1 sm:px-2">
+            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg border-2 border-white/30">
+                <span className="text-sm">{user.avatar}</span>
+              </div>
+              <span className={cn(
+                'px-2 sm:px-3 py-1 rounded-lg text-xs sm:text-sm font-bold shadow-md',
+                isMyTurn
+                  ? 'bg-yellow-400 text-gray-900'
+                  : theme === 'light' ? 'bg-gray-200 text-gray-700' : 'bg-gray-700/80 text-gray-200',
+              )}>
+                {user.name}
               </span>
-            )}
+              <span className={cn(
+                "px-1.5 sm:px-2 py-1 rounded text-xs font-bold border",
+                theme === 'light' ? "bg-gray-100 text-gray-700 border-gray-200" : "bg-black/40 backdrop-blur-sm text-white border-white/10"
+              )}>
+                {myPlayer.hand.length} {myPlayer.hand.length === 1 ? t('card') : t('cards')}
+              </span>
+              {myPlayer.hand.length === 1 && (
+                <span className="px-2 py-1 bg-red-500 text-white font-black text-xs animate-pulse rounded shadow-lg">
+                  {t('uno')}! 🔥
+                </span>
+              )}
+            </div>
+          </div>
+          <PlayerHand
+            cards={myPlayer.hand}
+            playableCardIds={playableCardIds}
+            onCardClick={handleCardClick}
+            isCurrentPlayer={isMyTurn}
+          />
+        </div>
+      ) : myRankEntry && gameState.phase === 'playing' ? (
+        <div className="flex justify-center py-4 pb-8">
+          <div className={cn(
+            "px-6 py-3 rounded-2xl text-sm font-bold border",
+            theme === 'light' ? "bg-white border-gray-200 text-gray-600" : "bg-white/10 border-white/20 text-gray-300"
+          )}>
+            👀 Watching the rest of the game... {rankEmoji(myRankEntry.rank)} You finished #{myRankEntry.rank}!
           </div>
         </div>
-        <PlayerHand
-          cards={myPlayer.hand}
-          playableCardIds={playableCardIds}
-          onCardClick={handleCardClick}
-          isCurrentPlayer={isMyTurn}
-        />
-      </div>
+      ) : null}
     </div>
   );
 }

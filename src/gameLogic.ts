@@ -51,15 +51,24 @@ export function dealCards(deck: Card[], numPlayers: number, cardsPerPlayer: numb
 }
 
 export function canPlayCard(card: Card, topCard: Card): boolean {
-  if (card.color === 'wild') return true;
+  if (card.color === 'wild' && card.value !== 'wild4') return true;
   const topColor = topCard.chosenColor || topCard.color;
   if (card.color === topColor) return true;
   if (card.value === topCard.value) return true;
   return false;
 }
 
+// Wild4 can only be played if player has NO card matching current color
+export function canPlayWild4(hand: Card[], topCard: Card): boolean {
+  const topColor = topCard.chosenColor || topCard.color;
+  return !hand.some(c => c.color !== 'wild' && c.color === topColor);
+}
+
 export function getPlayableCards(hand: Card[], topCard: Card): Card[] {
-  return hand.filter(card => canPlayCard(card, topCard));
+  return hand.filter(card => {
+    if (card.value === 'wild4') return canPlayWild4(hand, topCard);
+    return canPlayCard(card, topCard);
+  });
 }
 
 export function getNextPlayerIndex(currentIndex: number, direction: Direction, numPlayers: number): number {
@@ -125,6 +134,8 @@ export function initializeMultiplayerGame(roomPlayers: RoomPlayer[]): GameState 
     message: `${players[0].name}'s turn!`,
     pendingCard: null,
     lastAction: 'Game started! 🎉',
+    rankings: [],
+    drawnCardId: null,
   };
 }
 
@@ -154,14 +165,58 @@ export function playCard(state: GameState, cardId: string, chosenColor?: CardCol
 
   // Check for winner
   if (player.hand.length === 0) {
+    const nextRank = (newState.rankings?.length ?? 0) + 1;
+    const updatedRankings = [
+      ...(newState.rankings ?? []),
+      { rank: nextRank, name: player.name, avatar: player.avatar, email: player.email },
+    ];
+
+    // Remove finished player from active players
+    const remainingPlayers = newPlayers.filter(p => p.email !== player.email);
+
+    // If only 1 player left, they get last rank and game is over
+    if (remainingPlayers.length <= 1) {
+      const lastPlayer = remainingPlayers[0];
+      const finalRankings = lastPlayer
+        ? [...updatedRankings, { rank: nextRank + 1, name: lastPlayer.name, avatar: lastPlayer.avatar, email: lastPlayer.email }]
+        : updatedRankings;
+      return {
+        ...newState,
+        players: remainingPlayers,
+        discardPile: newDiscardPile,
+        rankings: finalRankings,
+        phase: 'game-over',
+        winner: player.id,
+        message: `🎉 ${player.name} won! UNO Champion!`,
+        lastAction,
+      };
+    }
+
+    // Game continues with remaining players
+    // Fix currentPlayerIndex after removing finished player
+    const removedIndex = newState.currentPlayerIndex;
+    let nextIdx = getNextPlayerIndex(removedIndex, newState.direction, newPlayers.length);
+    // Adjust index for removed player
+    const removedPlayerIndex = newPlayers.findIndex(p => p.email === player.email);
+    if (nextIdx > removedPlayerIndex) nextIdx--;
+    else if (nextIdx === removedPlayerIndex) nextIdx = nextIdx % remainingPlayers.length;
+    const safeNextIdx = nextIdx % remainingPlayers.length;
+
+    const nextPlayer = remainingPlayers[safeNextIdx];
     return {
       ...newState,
-      players: newPlayers,
+      players: remainingPlayers,
+      drawPile: newDrawPile,
       discardPile: newDiscardPile,
-      phase: 'game-over',
-      winner: player.id,
-      message: `🎉 ${player.name} won! UNO Champion!`,
-      lastAction,
+      currentPlayerIndex: safeNextIdx,
+      direction,
+      rankings: updatedRankings,
+      phase: 'playing',
+      winner: null,
+      message: `🏅 ${player.name} finished #${nextRank}! Now ${nextPlayer.name}'s turn!`,
+      lastAction: `🏅 ${player.name} finished in rank #${nextRank}!`,
+      pendingCard: null,
+      drawnCardId: null,
     };
   }
 
@@ -174,9 +229,11 @@ export function playCard(state: GameState, cardId: string, chosenColor?: CardCol
   // Handle special cards
   if (card.value === 'reverse') {
     direction = (direction * -1) as Direction;
-    nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, direction, newPlayers.length);
     if (newPlayers.length === 2) {
-      nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, direction, newPlayers.length);
+      // In 2-player, Reverse acts like Skip — current player plays again
+      nextPlayerIndex = newState.currentPlayerIndex;
+    } else {
+      nextPlayerIndex = getNextPlayerIndex(newState.currentPlayerIndex, direction, newPlayers.length);
     }
   } else if (card.value === 'skip') {
     nextPlayerIndex = getNextPlayerIndex(nextPlayerIndex, direction, newPlayers.length);
@@ -218,6 +275,7 @@ export function playCard(state: GameState, cardId: string, chosenColor?: CardCol
     message,
     lastAction,
     pendingCard: null,
+    drawnCardId: null,
   };
 }
 
@@ -236,13 +294,20 @@ export function drawCardAction(state: GameState): GameState {
   const topCard = newDiscardPile[newDiscardPile.length - 1];
   const drawnCard = drawn[0];
 
-  if (canPlayCard(drawnCard, topCard)) {
+  // Check if drawn card is playable (wild4 needs special check)
+  const drawnPlayable = drawnCard.value === 'wild4'
+    ? canPlayWild4(player.hand, topCard)
+    : canPlayCard(drawnCard, topCard);
+
+  if (drawnPlayable) {
+    // Player can play the drawn card — lock to only that card
     return {
       ...state,
       players: newPlayers,
       drawPile: newDrawPile,
       discardPile: newDiscardPile,
-      message: `${player.name} drew a card. Can play now!`,
+      drawnCardId: drawnCard.id,
+      message: `${player.name} drew a card. Can play it or pass!`,
       lastAction: `${player.name} drew a card`,
     };
   }
@@ -257,6 +322,7 @@ export function drawCardAction(state: GameState): GameState {
     drawPile: newDrawPile,
     discardPile: newDiscardPile,
     currentPlayerIndex: nextPlayerIndex,
+    drawnCardId: null,
     message: `${nextPlayer.name}'s turn!`,
     lastAction: `${player.name} drew a card and passed`,
   };
@@ -344,6 +410,8 @@ export function initializeAIGame(playerName: string, playerEmail: string, player
     message: `${players[0].name}, your turn! 🎮`,
     pendingCard: null,
     lastAction: 'AI Game started! 🤖🎉',
+    rankings: [],
+    drawnCardId: null,
   };
 }
 
@@ -356,26 +424,53 @@ export function getBotMove(state: GameState): GameState {
   if (!isBot(currentPlayer)) return state;
 
   const topCard = state.discardPile[state.discardPile.length - 1];
+
+  // If bot already drew a card this turn, play it if possible, else pass
+  if (state.drawnCardId) {
+    const drawnCard = currentPlayer.hand.find(c => c.id === state.drawnCardId);
+    if (drawnCard) {
+      const canPlay = drawnCard.value === 'wild4'
+        ? canPlayWild4(currentPlayer.hand, topCard)
+        : canPlayCard(drawnCard, topCard);
+      if (canPlay) {
+        let chosenColor: CardColor | undefined;
+        if (drawnCard.color === 'wild') {
+          const colorCount: Record<string, number> = { red: 0, blue: 0, green: 0, yellow: 0 };
+          currentPlayer.hand.forEach(c => { if (c.color !== 'wild') colorCount[c.color] = (colorCount[c.color] || 0) + 1; });
+          const maxColor = Object.entries(colorCount).sort((a, b) => b[1] - a[1])[0];
+          chosenColor = (maxColor[0] as CardColor) || 'red';
+        }
+        return playCard(state, drawnCard.id, chosenColor);
+      }
+    }
+    // Can't play drawn card — pass turn
+    const nextPlayerIndex = getNextPlayerIndex(state.currentPlayerIndex, state.direction, state.players.length);
+    const nextPlayer = state.players[nextPlayerIndex];
+    return {
+      ...state,
+      currentPlayerIndex: nextPlayerIndex,
+      drawnCardId: null,
+      message: `${nextPlayer.name}'s turn!`,
+      lastAction: `${currentPlayer.name} drew and passed`,
+    };
+  }
+
   const playable = getPlayableCards(currentPlayer.hand, topCard);
 
   if (playable.length === 0) {
-    // Bot draws a card
-    const newState = drawCardAction(state);
-    return newState;
+    return drawCardAction(state);
   }
 
   // AI Strategy: Prefer action cards, then match color, then wild
   const actionCards = playable.filter(c => ['skip', 'reverse', 'draw2', 'wild4'].includes(c.value));
   const colorMatch = playable.filter(c => c.color !== 'wild');
-  const wilds = playable.filter(c => c.color === 'wild');
+  const wilds = playable.filter(c => c.color === 'wild' && c.value !== 'wild4');
 
   let chosenCard: Card;
 
-  // If bot has 2 cards, try to play action card to trigger UNO strategically
   if (currentPlayer.hand.length <= 3 && actionCards.length > 0) {
     chosenCard = actionCards[Math.floor(Math.random() * actionCards.length)];
   } else if (colorMatch.length > 0) {
-    // Prefer higher value or action cards
     const sorted = [...colorMatch].sort((a, b) => {
       const valOrder: Record<string, number> = { 'draw2': 15, 'skip': 14, 'reverse': 13 };
       const aVal = valOrder[a.value] || parseInt(a.value) || 0;
@@ -384,9 +479,9 @@ export function getBotMove(state: GameState): GameState {
     });
     chosenCard = sorted[0];
   } else if (wilds.length > 0) {
-    // Prefer wild4 over wild
-    const wild4 = wilds.find(c => c.value === 'wild4');
-    chosenCard = wild4 || wilds[0];
+    chosenCard = wilds[0];
+  } else if (actionCards.length > 0) {
+    chosenCard = actionCards[0];
   } else {
     chosenCard = playable[0];
   }
@@ -394,17 +489,13 @@ export function getBotMove(state: GameState): GameState {
   // Choose color for wild cards
   let chosenColor: CardColor | undefined;
   if (chosenCard.color === 'wild') {
-    // Choose the most common color in hand
     const colorCount: Record<string, number> = { red: 0, blue: 0, green: 0, yellow: 0 };
     currentPlayer.hand.forEach(c => {
-      if (c.color !== 'wild') {
-        colorCount[c.color] = (colorCount[c.color] || 0) + 1;
-      }
+      if (c.color !== 'wild') colorCount[c.color] = (colorCount[c.color] || 0) + 1;
     });
     const maxColor = Object.entries(colorCount).sort((a, b) => b[1] - a[1])[0];
     chosenColor = (maxColor[0] as CardColor) || 'red';
   }
 
-  const newState = playCard(state, chosenCard.id, chosenColor);
-  return newState;
+  return playCard(state, chosenCard.id, chosenColor);
 }

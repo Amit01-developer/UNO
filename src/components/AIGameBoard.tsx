@@ -5,6 +5,9 @@ import {
   drawCardAction,
   getPlayableCards,
   canPlayCard,
+  canPlayWild4,
+  getNextPlayerIndex,
+  drawCardsFromPile,
   isBot,
   getBotMove,
   initializeAIGame,
@@ -67,12 +70,32 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
   const myPlayer = gameState.players[myPlayerIndex];
   const topCard = gameState.discardPile[gameState.discardPile.length - 1];
   const isMyTurn = gameState.currentPlayerIndex === myPlayerIndex && gameState.phase === 'playing';
-  const playableCards = isMyTurn ? getPlayableCards(myPlayer.hand, topCard) : [];
+  const hasDrawn = isMyTurn && !!gameState.drawnCardId;
+
+  const playableCards = isMyTurn
+    ? (hasDrawn
+        ? myPlayer.hand.filter(c => {
+            if (c.id !== gameState.drawnCardId) return false;
+            if (c.value === 'wild4') return canPlayWild4(myPlayer.hand, topCard);
+            return canPlayCard(c, topCard);
+          })
+        : getPlayableCards(myPlayer.hand, topCard))
+    : [];
   const playableCardIds = playableCards.map(c => c.id);
   const opponents = gameState.players.filter((_, i) => i !== myPlayerIndex);
 
   const handleCardClick = (card: Card) => {
-    if (!isMyTurn || !canPlayCard(card, topCard)) return;
+    if (!isMyTurn) return;
+
+    if (card.value === 'wild4') {
+      if (!canPlayWild4(myPlayer.hand, topCard)) return;
+      setPendingWildCard(card);
+      setShowColorPicker(true);
+      return;
+    }
+
+    if (!canPlayCard(card, topCard)) return;
+
     if (card.color === 'wild') {
       setPendingWildCard(card);
       setShowColorPicker(true);
@@ -93,8 +116,40 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
   };
 
   const handleDrawCard = () => {
-    if (!isMyTurn) return;
+    if (!isMyTurn || hasDrawn) return;
     setGameState(drawCardAction(gameState));
+  };
+
+  const handlePass = () => {
+    if (!isMyTurn || !hasDrawn) return;
+    const nextPlayerIndex = getNextPlayerIndex(gameState.currentPlayerIndex, gameState.direction, gameState.players.length);
+    const nextPlayer = gameState.players[nextPlayerIndex];
+    const newState = {
+      ...gameState,
+      currentPlayerIndex: nextPlayerIndex,
+      drawnCardId: null,
+      message: `${nextPlayer.name}'s turn!`,
+      lastAction: `${myPlayer.name} drew and passed`,
+    };
+    setGameState(newState);
+  };
+
+  const handleCatchUno = (targetEmail: string) => {
+    const targetIdx = gameState.players.findIndex(p => p.email === targetEmail);
+    if (targetIdx === -1) return;
+    const target = { ...gameState.players[targetIdx] };
+    if (target.hand.length !== 1 || target.isUno) return;
+    const { drawn, newDrawPile, newDiscardPile } = drawCardsFromPile(gameState.drawPile, gameState.discardPile, 2);
+    target.hand = [...target.hand, ...drawn];
+    const newPlayers = [...gameState.players];
+    newPlayers[targetIdx] = target;
+    setGameState({
+      ...gameState,
+      players: newPlayers,
+      drawPile: newDrawPile,
+      discardPile: newDiscardPile,
+      lastAction: `🚨 ${target.name} caught! +2 penalty cards!`,
+    });
   };
 
   const handlePlayAgain = () => {
@@ -276,10 +331,10 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
         <div className="flex flex-col items-center gap-1">
           <button
             onClick={handleDrawCard}
-            disabled={!isMyTurn}
+            disabled={!isMyTurn || hasDrawn}
             className={cn(
               'relative transition-all duration-200 rounded-xl',
-              isMyTurn ? 'hover:scale-105 hover:-translate-y-1 cursor-pointer' : 'opacity-70 cursor-not-allowed'
+              isMyTurn && !hasDrawn ? 'hover:scale-105 hover:-translate-y-1 cursor-pointer' : 'opacity-70 cursor-not-allowed'
             )}
           >
             <div className="w-14 h-20 sm:w-20 sm:h-28 rounded-xl border-4 border-gray-600 bg-gradient-to-br from-gray-800 to-black flex items-center justify-center shadow-2xl">
@@ -287,9 +342,14 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
                 <span className="text-white font-black text-sm sm:text-lg tracking-wider">UNO</span>
               </div>
             </div>
-            {isMyTurn && playableCards.length === 0 && (
+            {isMyTurn && !hasDrawn && playableCards.length === 0 && (
               <div className="absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-yellow-400 text-gray-900 rounded-lg text-[10px] font-black whitespace-nowrap animate-bounce shadow-lg">
                 👆 {t('drawCard')}
+              </div>
+            )}
+            {hasDrawn && (
+              <div className="absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-blue-400 text-gray-900 rounded-lg text-[10px] font-black whitespace-nowrap shadow-lg">
+                Already drew!
               </div>
             )}
           </button>
@@ -324,6 +384,32 @@ export function AIGameBoard({ user, botCount, onLeave }: AIGameBoardProps) {
 
       {/* PLAYER HAND */}
       <div className="shrink-0 pb-3">
+        {/* Pass button after drawing */}
+        {hasDrawn && (
+          <div className="flex justify-center mb-2">
+            <button
+              onClick={handlePass}
+              className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl text-sm shadow-lg transition-all hover:scale-105 cursor-pointer"
+            >
+              ⏭ Pass Turn
+            </button>
+          </div>
+        )}
+
+        {/* UNO Catch buttons */}
+        {opponents.some(o => o.hand.length === 1 && !o.isUno) && (
+          <div className="flex justify-center gap-2 mb-2 flex-wrap px-2">
+            {opponents.filter(o => o.hand.length === 1 && !o.isUno).map(o => (
+              <button
+                key={o.email}
+                onClick={() => handleCatchUno(o.email)}
+                className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white font-black rounded-xl text-xs shadow-lg animate-pulse transition-all hover:scale-105 cursor-pointer"
+              >
+                🚨 Catch {o.name}!
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-2 px-3 mb-1 flex-wrap">
           <div className={cn(
             "w-7 h-7 sm:w-8 sm:h-8 rounded-lg border-2 border-yellow-400 flex items-center justify-center text-base sm:text-lg",
